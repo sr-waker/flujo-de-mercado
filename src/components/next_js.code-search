@@ -1,0 +1,67 @@
+# Query: next.js
+# ContextLines: 1
+
+3 results - 3 files
+"use client";
+
+export default function ImpresoraTicket({ ventaData }: { ventaData: any }) {
+  
+  const handlePrint = async () => {
+    try {
+      // 1. Carga dinámica de la librería (¡Solo al hacer clic!)
+      const { default: EscPosEncoder } = await import('esc-pos-encoder');
+      const encoder = new EscPosEncoder();
+
+      // 2. Conexión al dispositivo (Pide permiso al usuario)
+      // Nota: Si ya sabes tu vendorId, úsalo aquí en el filtro para que sea directo
+      const device = await navigator.usb.requestDevice({ filters: [] });
+      await device.open();
+      await device.selectConfiguration(1);
+      await device.claimInterface(0);
+
+      // 3. Crear el ticket
+      const result = encoder
+        .initialize()
+        .text('--- MarketFlow ---')
+        .newline()
+        .text(`Total: $${ventaData.total}`)
+        .newline()
+        .cut()
+        .encode();
+
+      // 4. Enviar a la impresora
+      await device.transferOut(1, result);
+      
+      // 5. Cerrar conexión
+      await device.close();
+      console.log("Ticket enviado con éxito");
+
+    } catch (error) {
+      console.error("Error al imprimir:", error);
+      alert("No se pudo conectar a la impresora. ¿Está conectada por USB?");
+    }
+  };
+
+  return (
+    <button 
+      onClick={handlePrint}
+      className="bg-blue-600 text-white p-4 rounded-lg shadow-lg hover:bg-blue-700"
+    >
+      Imprimir Ticket Fiscal
+    </button>
+  );
+}
+.gitignore:
+  15  
+  16: # next.js
+  17  /.next/
+
+BACKUP_SUMMARY.md:
+  5  ## 🚀 Tecnologías Utilizadas
+  6: - **Framework:** Next.js 15 (App Router).
+  7  - **Interfaz:** React 19, Tailwind CSS, ShadCN UI.
+
+src/components/FirebaseErrorListener.tsx:
+  8   * An invisible component that listens for globally emitted 'permission-error' events.
+  9:  * It throws any received error to be caught by Next.js's global-error.tsx.
+  10   */

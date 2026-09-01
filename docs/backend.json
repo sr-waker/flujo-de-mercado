@@ -1,0 +1,175 @@
+
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Datos de perfil de usuario con sistema de gamificación.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "isBlocked": { "type": "boolean" },
+        "currentStreak": { "type": "number", "description": "Racha actual de días con ventas." },
+        "maxStreak": { "type": "number", "description": "Récord histórico de racha." },
+        "lastSaleDate": { "type": "string", "description": "Fecha de la última venta en formato YYYY-MM-DD." },
+        "dailyQuests": { 
+          "type": "array", 
+          "description": "Lista de 3 misiones asignadas para el día actual." 
+        },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["uid", "name", "role", "isBlocked"]
+    },
+    "DailyQuest": {
+      "title": "DailyQuest",
+      "description": "Estructura de una misión diaria individual.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["SALES_COUNT", "REVENUE_GOAL", "ITEM_COUNT"] },
+        "description": { "type": "string" },
+        "target": { "type": "number" },
+        "current": { "type": "number" },
+        "isCompleted": { "type": "boolean" }
+      }
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Carpeta de deudor para gestión de fiados.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "userId", "name"]
+    },
+    "MeatFolder": {
+      "title": "MeatFolder",
+      "description": "Carpeta de carnicería para agrupar ventas por peso.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "userId", "name"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Producto individual para la venta con metadatos de inventario.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string", "enum": ["Almacén", "Bebidas", "Carnicería", "Lácteos", "Limpieza", "Otros", "Fiambrería"] },
+        "codigoBarras": { "type": "string" },
+        "precioCosto": { "type": "number" },
+        "precioVenta": { "type": "number" },
+        "stock": { "type": "number" },
+        "minStock": { "type": "number" },
+        "porcentajeMerma": { "type": "number" },
+        "isVariablePrice": { "type": "boolean" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "userId", "name", "category", "precioVenta", "stock"]
+    },
+    "Purchase": {
+      "title": "Purchase",
+      "description": "Registro de compras de mercadería a proveedores.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "supplierName": { "type": "string" },
+        "total": { "type": "number" },
+        "timestamp": { "type": "number" },
+        "items": { "type": "array" }
+      },
+      "required": ["id", "userId", "supplierName", "total", "timestamp"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Transacciones de venta procesadas en el POS.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "total": { "type": "number" },
+        "timestamp": { "type": "number" },
+        "sessionId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "paymentMethod": { "type": "string", "enum": ["Efectivo", "Transferencia", "Tarjeta", "Fiado"] },
+        "items": { "type": "array" },
+        "extraCharges": { "type": "array" },
+        "isAbono": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "total", "timestamp", "sessionId", "paymentMethod"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Gastos operativos generales del negocio.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "concept": { "type": "string" },
+        "amount": { "type": "number" },
+        "category": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "userId", "concept", "amount", "timestamp"]
+    },
+    "SupplierDebt": {
+      "title": "SupplierDebt",
+      "description": "Deudas pendientes con proveedores.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "supplierName": { "type": "string" },
+        "amount": { "type": "number" },
+        "initialAmount": { "type": "number" },
+        "isPaid": { "type": "boolean" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "userId", "supplierName", "amount", "isPaid"]
+    },
+    "CashSession": {
+      "title": "CashSession",
+      "description": "Turnos de caja activos e históricos.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "isClosed": { "type": "boolean" },
+        "totalSalesAmount": { "type": "number" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "userId", "isClosed", "totalSalesAmount"]
+    }
+  },
+  "auth": {
+    "providers": ["password", "anonymous"]
+  },
+  "firestore": {
+    "users/{userId}": { "schema": "UserProfile", "description": "Perfiles de usuario con gamificación." },
+    "customers/{customerId}": { "schema": "Customer", "description": "Carpetas de deudores." },
+    "meat_folders/{folderId}": { "schema": "MeatFolder", "description": "Carpetas de carnicería." },
+    "productos/{productId}": { "schema": "Product", "description": "Inventario de productos." },
+    "purchases/{purchaseId}": { "schema": "Purchase", "description": "Compras a proveedores." },
+    "sales/{saleId}": { "schema": "Sale", "description": "Ventas realizadas." },
+    "expenses/{expenseId}": { "schema": "Expense", "description": "Gastos operativos." },
+    "supplier_debts/{debtId}": { "schema": "SupplierDebt", "description": "Deudas con proveedores." },
+    "shifts/{shiftId}": { "schema": "CashSession", "description": "Sesiones de caja." }
+  }
+}

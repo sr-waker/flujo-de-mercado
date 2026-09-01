@@ -1,0 +1,21 @@
+{
+  "name": "MarketFlow",
+  "short_name": "MarketFlow",
+  "description": "Gestión de inventario y ventas para mini-mercados",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#299483",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/market/192/192",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/seed/market/512/512",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

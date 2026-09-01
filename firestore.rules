@@ -1,0 +1,14 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    /**
+     * Reglas de MarketFlow Prototipo:
+     * Permitimos acceso total a usuarios autenticados para garantizar la fluidez de la IA y reportes.
+     * La privacidad se gestiona mediante el filtrado de userId en el código cliente.
+     */
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
