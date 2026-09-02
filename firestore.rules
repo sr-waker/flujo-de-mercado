@@ -1,14 +1,70 @@
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    /**
-     * Reglas de MarketFlow Prototipo:
-     * Permitimos acceso total a usuarios autenticados para garantizar la fluidez de la IA y reportes.
-     * La privacidad se gestiona mediante el filtrado de userId en el código cliente.
-     */
+
+    // Helpers — TallerFlow: venta mostrador exige usuario real, no anónimo
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isNonAnonymous() {
+      return isSignedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    function isOwner(userId) {
+      return isNonAnonymous() && request.auth.uid == userId;
+    }
+    // Para writes: el doc entrante debe pertenecer al uid autenticado
+    function incomingIsOwner() {
+      return isNonAnonymous() && request.resource.data.userId == request.auth.uid;
+    }
+    // Para reads/updates: el doc existente debe pertenecer al uid
+    function existingIsOwner() {
+      return isNonAnonymous() && resource.data.userId == request.auth.uid;
+    }
+
+    // Perfil de usuario: solo su propio doc /users/{uid}
+    match /users/{uid} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+      // Bloquear escritura anónima sobre perfiles
+      allow create: if isNonAnonymous() && request.auth.uid == uid;
+    }
+
+    // Colecciones con campo userId — aislamiento por propietario
+    match /productos/{docId} {
+      allow create: if incomingIsOwner();
+      allow read, update, delete: if existingIsOwner();
+    }
+    match /sales/{docId} {
+      allow create: if incomingIsOwner();
+      allow read, update, delete: if existingIsOwner();
+    }
+    match /customers/{docId} {
+      allow create: if incomingIsOwner();
+      allow read, update, delete: if existingIsOwner();
+    }
+    match /shifts/{docId} {
+      allow create: if incomingIsOwner();
+      allow read, update, delete: if existingIsOwner();
+    }
+    match /expenses/{docId} {
+      allow create: if incomingIsOwner();
+      allow read, update, delete: if existingIsOwner();
+    }
+    match /purchases/{docId} {
+      allow create: if incomingIsOwner();
+      allow read, update, delete: if existingIsOwner();
+    }
+    match /supplier_debts/{docId} {
+      allow create: if incomingIsOwner();
+      allow read, update, delete: if existingIsOwner();
+    }
+    match /meat_folders/{docId} {
+      allow create: if incomingIsOwner();
+      allow read, update, delete: if existingIsOwner();
+    }
+
+    // Denegar todo lo demás por defecto (cierra demo abierto)
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }
