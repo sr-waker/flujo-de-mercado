@@ -47,6 +47,7 @@ import { useMarketStore } from '@/lib/store';
 import { useUser, useAuth, useCollection, useFirestore, useMemoFirebase, useDoc, errorEmitter, initiateAnonymousSignIn } from '@/firebase';
 import { collection, query, where, limit, doc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword } from 'firebase/auth';
+import { OfflineBadge } from '@/components/OfflineBadge';
 import { 
   Dialog, 
   DialogContent, 
@@ -372,6 +373,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </SheetContent>
           </Sheet>
         </div>
+        <div className="hidden lg:flex justify-end px-8 pt-3"><OfflineBadge /></div>
         <div className="p-4 md:p-8 w-full max-w-[98%] mx-auto">{children}</div>
       </main>
 

@@ -55,6 +55,8 @@ import { processScaleCommand } from '@/ai/flows/scale-calculator-flow';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { BotonCobrar } from '@/components/pos/BotonCobrar';
 import { normalizeQuantityForCategory } from '@/lib/taller-validators';
+import { enqueueReceipt } from '@/lib/taller-db';
+import { OfflineBadge } from '@/components/OfflineBadge';
 
 export default function POSPage() {
   return (
@@ -315,37 +317,77 @@ function POSContent() {
   const handleCheckout = async () => {
     if (!activeSession) return;
 
-    try {
-      const customerName = customers?.find(c => c.id === selectedCustomerId)?.name || '';
-      const saleToRegister = {
-        items: cart,
-        extraCharges: extraCharges,
-        total: cartTotal,
-        paymentMethod,
-        customerId: selectedCustomerId || null,
-        customerName: customerName || null
-      };
+    const customerName = customers?.find(c => c.id === selectedCustomerId)?.name || '';
+    const saleToRegister = {
+      items: cart,
+      extraCharges: extraCharges,
+      total: cartTotal,
+      paymentMethod,
+      customerId: selectedCustomerId || null,
+      customerName: customerName || null
+    };
 
-      const result: any = await addSale(activeSession.id, saleToRegister, currentCheckoutId || undefined);
-      
-      setLastSale({ ...saleToRegister, id: result?.id || 'temp', timestamp: Date.now() } as any);
-      setAiWarnings(result?.warnings || []);
-      
+    const finishLocal = (id: string, offline = false) => {
+      setLastSale({ ...saleToRegister, id, timestamp: Date.now() } as any);
+      setAiWarnings([]);
       setCart([]);
       setExtraCharges([]);
       localStorage.removeItem('mf_pos_cart');
       localStorage.removeItem('mf_pos_extras');
-      
+      setIsCheckoutOpen(false);
+      setIsSuccessOpen(true);
+      setCustomerPaidAmount('');
+      setCurrentCheckoutId(null);
+      if (offline) {
+        toast({ title: 'Venta guardada offline', description: 'Sin conexión: se sincronizará sola al volver el WiFi. ¡No perdés la venta!' });
+      }
+    };
+
+    const isOfflineNow = typeof navigator !== 'undefined' && !navigator.onLine;
+    if (isOfflineNow) {
+      try {
+        const localUid = (typeof window !== 'undefined' && window.localStorage.getItem('mf_offline_uid')) || 'local-user';
+        const receipt = await enqueueReceipt({
+          userId: localUid,
+          lines: cart.map(c => ({ productId: c.productId, quantity: c.quantity, unitPrice: c.price })),
+          payments: [{ type: paymentMethod as any, amount: cartTotal }],
+          customerId: selectedCustomerId || undefined,
+        } as any);
+        finishLocal(receipt.id, true);
+        return;
+      } catch {}
+    }
+
+    try {
+      const result: any = await addSale(activeSession.id, saleToRegister, currentCheckoutId || undefined);
+      setLastSale({ ...saleToRegister, id: result?.id || 'temp', timestamp: Date.now() } as any);
+      setAiWarnings(result?.warnings || []);
+      setCart([]);
+      setExtraCharges([]);
+      localStorage.removeItem('mf_pos_cart');
+      localStorage.removeItem('mf_pos_extras');
       setIsCheckoutOpen(false);
       setIsSuccessOpen(true);
       setCustomerPaidAmount('');
       setCurrentCheckoutId(null);
     } catch (e: any) {
-      toast({ 
-        title: "Error en la Venta", 
-        description: "El servidor está bajo alta demanda. Reintentando sincronización...",
-        variant: "destructive" 
-      });
+      // Fallback offline-first estilo Loyverse: no se pierde la venta
+      try {
+        const localUid2 = (typeof window !== 'undefined' && window.localStorage.getItem('mf_offline_uid')) || 'local-user';
+        const receipt = await enqueueReceipt({
+          userId: localUid2,
+          lines: cart.map(c => ({ productId: c.productId, quantity: c.quantity, unitPrice: c.price })),
+          payments: [{ type: paymentMethod as any, amount: cartTotal }],
+          customerId: selectedCustomerId || undefined,
+        } as any);
+        finishLocal(receipt.id, true);
+      } catch {
+        toast({
+          title: "Error en la Venta",
+          description: "No se pudo guardar ni offline. Reintentá en unos segundos.",
+          variant: "destructive"
+        });
+      }
     }
   };
 
@@ -386,7 +428,7 @@ function POSContent() {
 
   return (
     <div className="flex flex-col gap-6 h-[calc(100vh-140px)] animate-in fade-in duration-500">
-      
+      <div className="flex justify-end -mb-2"><OfflineBadge /></div>
       {/* BANNER DE CONTINGENCIA */}
       {isOfflineMode && (
         <Alert variant="destructive" className="rounded-2xl bg-amber-500/10 border-amber-500/30 animate-pulse">
