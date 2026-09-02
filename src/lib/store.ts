@@ -13,7 +13,7 @@ import {
   FirestorePermissionError
 } from '@/firebase';
 import { Product, Expense, PaymentMethod, Customer, Sale, SupplierDebt, UserProfile } from './types';
-import { getPerishablesAlert } from '@/ai/flows/perishables-inventory-flow';
+import { normalizeQuantityForCategory } from '@/lib/taller-validators';
 
 export function useMarketStore() {
   const db = useFirestore();
@@ -271,9 +271,9 @@ export function useMarketStore() {
       getDoc(productRef).then(productSnap => {
         if (productSnap.exists()) {
           const product = productSnap.data() as Product;
-          const qty = Number(quantity) || 0;
-          const merma = product.porcentajeMerma || 0;
-          const stockToDeduct = qty * (1 + (merma / 100));
+          // TallerFlow: bidones enteros — merma 0, cantidades normalizadas a entero
+          const qty = normalizeQuantityForCategory(Number(quantity) || 0, product.category as any);
+          const stockToDeduct = qty;
           
           updateDocumentNonBlocking(productRef, {
             stock: increment(-stockToDeduct)
@@ -281,14 +281,7 @@ export function useMarketStore() {
 
           const newStock = product.stock - stockToDeduct;
           if (newStock <= (product.minStock || 5)) {
-            getPerishablesAlert({
-              productName: product.name,
-              currentStockKg: newStock,
-              minStockKg: product.minStock || 5,
-              portionSizeGr: 200
-            }).then(alert => {
-              warnings.push(alert.message);
-            }).catch(() => {});
+            warnings.push(`Stock bajo: ${product.name} (${newStock} un)`);
           }
         }
       }).catch(async () => {

@@ -54,6 +54,7 @@ import { downloadTicketTxt } from '@/lib/ticket-formatter';
 import { processScaleCommand } from '@/ai/flows/scale-calculator-flow';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { BotonCobrar } from '@/components/pos/BotonCobrar';
+import { normalizeQuantityForCategory } from '@/lib/taller-validators';
 
 export default function POSPage() {
   return (
@@ -234,29 +235,35 @@ function POSContent() {
   };
 
   const addToCart = (product: Product, customWeight?: number, customTotal?: number) => {
-    if ((product.category === 'Fiambrería' || product.category === 'Carnicería' || product.isVariablePrice) && !customWeight) {
-      setSelectedScaleProduct(product);
-      setScaleGrams('');
-      setScaleAmount('');
-      setSearchTerm('');
-      return;
+    // TallerFlow: venta solo en mostrador, bidones enteros — nunca fraccionado
+    // El viejo flujo de Fiambrería/Carnicería queda deshabilitado
+    if (product.isVariablePrice && !customWeight) {
+      // variable price legacy: lo tratamos como unidad entera en taller
     }
 
     const price = customTotal ? customTotal : product.precioVenta;
-    const qty = customWeight ? customWeight / 1000 : 1;
+    // Si viene de balanza legacy con 13 dígitos (empieza con 2), ignoramos gr y forzamos 1 unidad
+    let qty: number;
+    if (customWeight) {
+      // legacy pesable → 1 bidón entero, no gramos
+      qty = 1;
+    } else {
+      qty = 1;
+    }
+    qty = normalizeQuantityForCategory(qty, product.category as any);
 
     setCart(prev => {
       const existingIdx = prev.findIndex(item => item.productId === product.id && !customWeight);
       if (existingIdx > -1 && !customWeight) {
         const newCart = [...prev];
         const item = newCart[existingIdx];
-        const newQty = item.quantity + 1;
+        const newQty = normalizeQuantityForCategory(item.quantity + 1, product.category as any);
         newCart[existingIdx] = { ...item, quantity: newQty, total: newQty * item.price };
         return newCart;
       } else {
         return [...prev, {
           productId: product.id,
-          name: customWeight ? `${product.name} (${customWeight}gr)` : product.name,
+          name: product.name,
           quantity: qty,
           price: product.precioVenta,
           buyPrice: product.precioCosto,
@@ -344,9 +351,12 @@ function POSContent() {
 
   const updateQuantity = (productId: string, newQty: number) => {
     setCart(prev => {
-      if (newQty <= 0) return prev.filter(item => item.productId !== productId);
+      // Normaliza a entero: taller no fracciona bidones
+      const product = localCatalog.find(p => p.id === productId);
+      const safeQty = product ? normalizeQuantityForCategory(newQty, product.category as any) : Math.max(0, Math.floor(newQty));
+      if (safeQty <= 0) return prev.filter(item => item.productId !== productId);
       return prev.map(item => 
-        item.productId === productId ? { ...item, quantity: newQty, total: newQty * item.price } : item
+        item.productId === productId ? { ...item, quantity: safeQty, total: safeQty * item.price } : item
       );
     });
   };

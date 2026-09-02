@@ -55,6 +55,7 @@ import { Product, Category } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { getProductIntel } from '@/ai/flows/product-intel-flow';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { isBarcodeUnique, normalizeQuantityForCategory } from '@/lib/taller-validators';
 
 const CATEGORIES: Category[] = ['Repuestos', 'Aceites', 'Accesorios', 'Químicos', 'Herramientas', 'Otros'];
 
@@ -314,15 +315,34 @@ function InventoryContent() {
   };
 
   const handleSave = () => {
-    if (!formData.name) {
+    if (!formData.name?.trim()) {
       toast({ title: "Falta Nombre", description: "El producto debe tener un nombre.", variant: "destructive" });
       return;
     }
-    if (editingProduct) {
-      updateProduct(editingProduct.id, formData);
-    } else {
-      addProduct(formData);
+    // Aspecto 1: bidones enteros con código único obligatorio
+    const codigo = (formData.codigoBarras || '').trim();
+    if (!codigo) {
+      toast({ title: "Falta código de barras", description: "Todo bidón/repuesto necesita su EAN-13 único, Baka. ¡No lo dejes vacío?!", variant: "destructive" });
+      return;
     }
+    const allCodes = (products || []).map(p => p.codigoBarras || '');
+    const editingCode = editingProduct?.codigoBarras || '';
+    // isBarcodeUnique ya contempla excluir edición propia
+    const unique = isBarcodeUnique(codigo, allCodes.filter(c => c !== editingCode));
+    if (!unique) {
+      toast({ title: "Código duplicado", description: `El código ${codigo} ya existe. Usá uno único, tonto.`, variant: "destructive" });
+      return;
+    }
+    // Normaliza cantidades a enteros: taller vende bidones enteros, no fracciones
+    const safeStock = normalizeQuantityForCategory(formData.stock, formData.category);
+    const safeMin = normalizeQuantityForCategory(formData.minStock, formData.category);
+    const payload = { ...formData, codigoBarras: codigo, stock: safeStock, minStock: safeMin, porcentajeMerma: 0 } as typeof formData;
+    if (editingProduct) {
+      updateProduct(editingProduct.id, payload);
+    } else {
+      addProduct(payload);
+    }
+    toast({ title: editingProduct ? "Producto actualizado" : "Producto creado", description: `Código ${codigo} · Stock ${safeStock} unidades enteras.` });
     setIsModalOpen(false);
   };
 
@@ -502,40 +522,26 @@ function InventoryContent() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Stock Actual</Label>
-                      <Input type="number" step="0.01" value={formData.stock} onChange={e => setFormData({ ...formData, stock: parseFloat(e.target.value) || 0 })} className="h-14 rounded-xl font-bold text-foreground" />
+                      <Input type="number" step="1" min="0" inputMode="numeric" pattern="[0-9]*" value={formData.stock} onChange={e => setFormData({ ...formData, stock: normalizeQuantityForCategory(parseFloat(e.target.value) || 0, formData.category) })} className="h-14 rounded-xl font-bold text-foreground" />
                     </div>
                     <div className="space-y-2">
                       <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 text-amber-600">
                         <BellRing className="w-3 h-3" /> Stock Mínimo
                       </Label>
-                      <Input type="number" step="0.01" value={formData.minStock} onChange={e => setFormData({ ...formData, minStock: parseFloat(e.target.value) || 0 })} className="h-14 rounded-xl font-bold text-amber-600 border-amber-500/20 bg-amber-500/5" />
+                      <Input type="number" step="1" min="0" inputMode="numeric" value={formData.minStock} onChange={e => setFormData({ ...formData, minStock: normalizeQuantityForCategory(parseFloat(e.target.value) || 0, formData.category) })} className="h-14 rounded-xl font-bold text-amber-600 border-amber-500/20 bg-amber-500/5" />
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="p-6 rounded-3xl bg-amber-500/5 border-2 border-dashed border-amber-500/20 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-amber-600">
-                    <TrendingDown className="w-5 h-5" />
-                    <span className="text-xs font-black uppercase tracking-widest">Control de Merma Operativa</span>
-                  </div>
+              <div className="p-6 rounded-3xl bg-muted/10 border-2 border-dashed border-muted-foreground/20 space-y-2 opacity-60">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Info className="w-4 h-4" />
+                  <span className="text-xs font-black uppercase tracking-widest">TallerMode: sin merma</span>
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-black opacity-70">Porcentaje de Merma (%)</Label>
-                  <div className="flex items-center gap-4">
-                    <Input 
-                      type="number" 
-                      placeholder="0" 
-                      value={formData.porcentajeMerma} 
-                      onChange={e => setFormData({ ...formData, porcentajeMerma: parseFloat(e.target.value) || 0 })} 
-                      className="h-12 w-24 bg-background font-black text-center text-amber-600"
-                    />
-                    <p className="text-[10px] text-muted-foreground leading-relaxed">
-                      Se descontará un <strong>{formData.porcentajeMerma || 0}% extra</strong> de stock por venta.
-                    </p>
-                  </div>
-                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  En taller se venden bidones enteros — la merma ya no aplica. Stock descuenta 1 a 1, ¡entendiste?!
+                </p>
               </div>
 
               <div className="p-6 rounded-3xl bg-muted/20 border-2 border-dashed border-muted-foreground/20 space-y-4">
