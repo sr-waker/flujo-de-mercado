@@ -55,9 +55,10 @@ import { processScaleCommand } from '@/ai/flows/scale-calculator-flow';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { BotonCobrar } from '@/components/pos/BotonCobrar';
 import { normalizeQuantityForCategory } from '@/lib/taller-validators';
-import { enqueueReceipt, enqueueAfipRequest } from '@/lib/taller-db';
+import { enqueueReceipt, enqueueAfipRequest, enqueueTransfer } from '@/lib/taller-db';
 import { OfflineBadge } from '@/components/OfflineBadge';
 import { FiscalBadge } from '@/components/FiscalBadge';
+import { TransferBadge } from '@/components/TransferBadge';
 import { getFiscalConfig, buildAfipPayload, getCbteTipo, type LineInput } from '@/lib/taller-fiscal';
 
 export default function POSPage() {
@@ -157,6 +158,7 @@ function POSContent() {
   const [isExtraChargeModalOpen, setIsExtraChargeModalOpen] = useState(false);
   const [extraChargeForm, setExtraChargeForm] = useState({ name: '', amount: '', meatFolderId: '' });
   const [customerPaidAmount, setCustomerPaidAmount] = useState('');
+  const [transferProvider, setTransferProvider] = useState<'mercadopago' | 'cuentadni'>('cuentadni');
 
   // --- PERSISTENCIA LOCAL (Anti-pérdida de datos) ---
   useEffect(() => {
@@ -367,6 +369,16 @@ function POSContent() {
         await enqueueAfipRequest({ receiptId, payload });
       } catch (e) { console.warn('CAE queue skip', e); }
     };
+    const queueTransferForReceipt = async (receiptId: string) => {
+      if (paymentMethod !== 'Transferencia') return;
+      try {
+        await enqueueTransfer({
+          receiptId,
+          provider: transferProvider,
+          amount: cartTotal,
+        });
+      } catch (e) { console.warn('transfer queue skip', e); }
+    };
     if (isOfflineNow) {
       try {
         const localUid = (typeof window !== 'undefined' && window.localStorage.getItem('mf_offline_uid')) || 'local-user';
@@ -377,6 +389,7 @@ function POSContent() {
           customerId: selectedCustomerId || undefined,
         } as any);
         await queueCaeForReceipt(receipt.id);
+        await queueTransferForReceipt(receipt.id);
         finishLocal(receipt.id, true);
         return;
       } catch {}
@@ -385,6 +398,7 @@ function POSContent() {
     try {
       const result: any = await addSale(activeSession.id, saleToRegister, currentCheckoutId || undefined);
       try { await queueCaeForReceipt(result?.id || currentCheckoutId || `cloud_${Date.now()}`); } catch {}
+      try { await queueTransferForReceipt(result?.id || currentCheckoutId || `cloud_${Date.now()}`); } catch {}
       setLastSale({ ...saleToRegister, id: result?.id || 'temp', timestamp: Date.now() } as any);
       setAiWarnings(result?.warnings || []);
       setCart([]);
@@ -406,6 +420,7 @@ function POSContent() {
           customerId: selectedCustomerId || undefined,
         } as any);
         await queueCaeForReceipt(receipt.id);
+        await queueTransferForReceipt(receipt.id);
         finishLocal(receipt.id, true);
       } catch {
         toast({
@@ -454,7 +469,7 @@ function POSContent() {
 
   return (
     <div className="flex flex-col gap-6 h-[calc(100vh-140px)] animate-in fade-in duration-500">
-      <div className="flex justify-end -mb-2 gap-2 flex-wrap"><OfflineBadge /><FiscalBadge /></div>
+      <div className="flex justify-end -mb-2 gap-2 flex-wrap"><OfflineBadge /><FiscalBadge /><TransferBadge /></div>
       {/* BANNER DE CONTINGENCIA */}
       {isOfflineMode && (
         <Alert variant="destructive" className="rounded-2xl bg-amber-500/10 border-amber-500/30 animate-pulse">
@@ -694,6 +709,24 @@ function POSContent() {
                       <p className="text-4xl font-black text-emerald-600">{formatCurrency(changeAmount)}</p>
                     </div>
                   )}
+                </div>
+              )}
+
+              {paymentMethod === 'Transferencia' && (
+                <div className="space-y-3 p-4 rounded-3xl bg-sky-500/5 border border-sky-500/20">
+                  <Label className="text-[10px] font-black uppercase">Origen de la transferencia</Label>
+                  <Select value={transferProvider} onValueChange={(v: any) => setTransferProvider(v)}>
+                    <SelectTrigger className="h-11 rounded-xl font-bold"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cuentadni">Cuenta DNI — conciliación manual (pendiente hasta validar comprobante)</SelectItem>
+                      <SelectItem value="mercadopago">Mercado Pago — automático por webhook (aprobado al llegar el pago)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground leading-tight">
+                    {transferProvider === 'mercadopago'
+                      ? 'Se crea en estado pendiente. Cuando Mercado Pago notifique al webhook /api/webhooks/mercadopago quedará aprobado y sumará al Dashboard.'
+                      : 'Quedará pendiente en el Dashboard hasta que confirmes el comprobante (Cuenta DNI no tiene webhook público).'}
+                  </p>
                 </div>
               )}
 

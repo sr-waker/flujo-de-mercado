@@ -69,12 +69,28 @@ export interface AfipQueueItem {
   updatedAt: string;
 }
 
+export interface TransferQueueItem {
+  id: string; // client_uuid o pay_xxx
+  receiptId?: string | null;
+  provider: string; // 'mercadopago' | 'cuentadni' | 'manual'
+  status: 'pending' | 'approved' | 'rejected';
+  amount: number;
+  externalId?: string | null;
+  aliasOrCbu?: string | null;
+  comprobanteUrl?: string | null;
+  note?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  approvedAt?: string | null;
+}
+
 class TallerDb extends Dexie {
   products!: Table<LocalProduct, string>;
   customers!: Table<LocalCustomer, string>;
   receipts!: Table<LocalReceipt, string>;
   syncQueue!: Table<SyncQueueItem, string>;
   afipQueue!: Table<AfipQueueItem, string>;
+  transferQueue!: Table<TransferQueueItem, string>;
 
   constructor() {
     super('tallerflow-offline');
@@ -86,6 +102,9 @@ class TallerDb extends Dexie {
     });
     this.version(2).stores({
       afipQueue: 'id, receiptId, status, createdAt',
+    });
+    this.version(3).stores({
+      transferQueue: 'id, receiptId, status, provider, externalId, createdAt',
     });
   }
 }
@@ -214,3 +233,84 @@ export async function markAfipError(id: string, error: string): Promise<void> {
   if (!row) throw new Error('afip queue item not found');
   await db.afipQueue.put({ ...row, status: 'error', lastError: error, retries: row.retries + 1, updatedAt: new Date().toISOString() });
 }
+
+// ─── Cola Transferencias (Mercado Pago / Cuenta DNI) ─── idempotente por id o externalId
+export async function enqueueTransfer(input: {
+  id?: string;
+  receiptId?: string | null;
+  provider: string;
+  amount: number;
+  externalId?: string | null;
+  aliasOrCbu?: string | null;
+  comprobanteUrl?: string | null;
+}): Promise<TransferQueueItem> {
+  const db = getTallerDb();
+  const now = new Date().toISOString();
+  const id = input.id ?? `pay_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  // idempotencia por externalId si viene (MP)
+  if (input.externalId) {
+    const byExt = await db.transferQueue.where('externalId').equals(input.externalId).first();
+    if (byExt) return byExt;
+  }
+  const existing = await db.transferQueue.get(id);
+  if (existing) return existing;
+  const row: TransferQueueItem = {
+    id,
+    receiptId: input.receiptId ?? null,
+    provider: input.provider,
+    status: 'pending',
+    amount: Number(input.amount) || 0,
+    externalId: input.externalId ?? null,
+    aliasOrCbu: input.aliasOrCbu ?? null,
+    comprobanteUrl: input.comprobanteUrl ?? null,
+    note: null,
+    createdAt: now,
+    updatedAt: now,
+    approvedAt: null,
+  };
+  await db.transferQueue.put(row);
+  return row;
+}
+
+export async function getPendingTransfers(): Promise<TransferQueueItem[]> {
+  const db = getTallerDb();
+  return db.transferQueue.where('status').equals('pending').toArray();
+}
+
+export async function getTransferQueueStats(): Promise<{ pending: number; approved: number; rejected: number; pendingTotal: number; approvedTotal: number }> {
+  const db = getTallerDb();
+  const all = await db.transferQueue.toArray();
+  return {
+    pending: all.filter(r => r.status === 'pending').length,
+    approved: all.filter(r => r.status === 'approved').length,
+    rejected: all.filter(r => r.status === 'rejected').length,
+    pendingTotal: all.filter(r => r.status === 'pending').reduce((s, r) => s + (Number(r.amount) || 0), 0),
+    approvedTotal: all.filter(r => r.status === 'approved').reduce((s, r) => s + (Number(r.amount) || 0), 0),
+  };
+}
+
+export async function markTransferApproved(id: string, externalId?: string | null): Promise<void> {
+  const db = getTallerDb();
+  const row = await db.transferQueue.get(id);
+  if (!row) throw new Error('transfer not found');
+  if (row.status === 'approved') return;
+  const now = new Date().toISOString();
+  await db.transferQueue.put({ ...row, status: 'approved', externalId: externalId ?? row.externalId, approvedAt: row.approvedAt ?? now, updatedAt: now });
+}
+
+export async function markTransferRejected(id: string, note?: string): Promise<void> {
+  const db = getTallerDb();
+  const row = await db.transferQueue.get(id);
+  if (!row) throw new Error('transfer not found');
+  if (row.status === 'rejected') return;
+  await db.transferQueue.put({ ...row, status: 'rejected', note: note ?? null, updatedAt: new Date().toISOString() });
+}
+
+export async function markTransferApprovedByExternalId(externalId: string): Promise<TransferQueueItem | null> {
+  const db = getTallerDb();
+  const row = await db.transferQueue.where('externalId').equals(externalId).first();
+  if (!row) return null;
+  await markTransferApproved(row.id, externalId);
+  return (await db.transferQueue.get(row.id)) ?? null;
+}
+

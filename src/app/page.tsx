@@ -30,6 +30,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useMarketStore } from '@/lib/store';
 import { useToast } from '@/hooks/use-toast';
 import { startOfMonth, subMonths, endOfMonth } from 'date-fns';
+import { TransferBadge } from '@/components/TransferBadge';
 
 export default function Dashboard() {
   return (
@@ -209,6 +210,11 @@ function DashboardContent() {
         <Button onClick={fetchAIInsights} disabled={aiLoading} className="rounded-xl h-12 px-6 gap-2 font-black shadow-lg">
           {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} AI Insights
         </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2 items-center">
+        <TransferBadge />
+        <span className="text-[10px] text-muted-foreground">Mercado Pago automático (webhook) · Cuenta DNI conciliación manual · Sin exponer secretos</span>
       </div>
 
       {aiError && (
