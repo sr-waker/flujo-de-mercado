@@ -55,8 +55,10 @@ import { processScaleCommand } from '@/ai/flows/scale-calculator-flow';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { BotonCobrar } from '@/components/pos/BotonCobrar';
 import { normalizeQuantityForCategory } from '@/lib/taller-validators';
-import { enqueueReceipt } from '@/lib/taller-db';
+import { enqueueReceipt, enqueueAfipRequest } from '@/lib/taller-db';
 import { OfflineBadge } from '@/components/OfflineBadge';
+import { FiscalBadge } from '@/components/FiscalBadge';
+import { getFiscalConfig, buildAfipPayload, getCbteTipo, type LineInput } from '@/lib/taller-fiscal';
 
 export default function POSPage() {
   return (
@@ -344,6 +346,27 @@ function POSContent() {
     };
 
     const isOfflineNow = typeof navigator !== 'undefined' && !navigator.onLine;
+    // Helper para encolar CAE WSFE idempotente por receipt.id
+    const queueCaeForReceipt = async (receiptId: string) => {
+      try {
+        const cfg = getFiscalConfig();
+        if (!cfg.cuit) return; // sin CUIT configurado = no fiscal
+        const ivaIncluido = cfg.ivaIncluido;
+        // Mapea cada bidón/repuesto a alícuota por categoría (hoy todas 21%); unitPriceIncl = precio mostrado
+        const lines: LineInput[] = cart.map(c => {
+          const prod = localCatalog.find(p=>p.id===c.productId);
+          const rate = (prod as any)?.taxRate ?? 0.21;
+          return { quantity: c.quantity, unitPriceIncl: c.price, taxRate: rate, ivaIncluido };
+        });
+        if (!lines.length) return;
+        const receptorCond = (customers?.find(x=>x.id===selectedCustomerId) as any)?.condicionIva as any || 'Consumidor Final';
+        const cbteTipo = getCbteTipo(cfg.condicionIva as any, receptorCond as any);
+        const docNro = (customers?.find(x=>x.id===selectedCustomerId) as any)?.cuit || '0';
+        const docTipo = docNro && docNro.replace(/\D/g,'').length===11 ? 80 : 99;
+        const payload = buildAfipPayload({ clientUuid: receiptId, cuitEmisor: cfg.cuit, ptoVta: cfg.ptoVta, cbteTipo, docTipoReceptor: docTipo, docNroReceptor: docNro, condicionEmisor: cfg.condicionIva as any, condicionReceptor: receptorCond, lines });
+        await enqueueAfipRequest({ receiptId, payload });
+      } catch (e) { console.warn('CAE queue skip', e); }
+    };
     if (isOfflineNow) {
       try {
         const localUid = (typeof window !== 'undefined' && window.localStorage.getItem('mf_offline_uid')) || 'local-user';
@@ -353,6 +376,7 @@ function POSContent() {
           payments: [{ type: paymentMethod as any, amount: cartTotal }],
           customerId: selectedCustomerId || undefined,
         } as any);
+        await queueCaeForReceipt(receipt.id);
         finishLocal(receipt.id, true);
         return;
       } catch {}
@@ -360,6 +384,7 @@ function POSContent() {
 
     try {
       const result: any = await addSale(activeSession.id, saleToRegister, currentCheckoutId || undefined);
+      try { await queueCaeForReceipt(result?.id || currentCheckoutId || `cloud_${Date.now()}`); } catch {}
       setLastSale({ ...saleToRegister, id: result?.id || 'temp', timestamp: Date.now() } as any);
       setAiWarnings(result?.warnings || []);
       setCart([]);
@@ -380,6 +405,7 @@ function POSContent() {
           payments: [{ type: paymentMethod as any, amount: cartTotal }],
           customerId: selectedCustomerId || undefined,
         } as any);
+        await queueCaeForReceipt(receipt.id);
         finishLocal(receipt.id, true);
       } catch {
         toast({
@@ -428,7 +454,7 @@ function POSContent() {
 
   return (
     <div className="flex flex-col gap-6 h-[calc(100vh-140px)] animate-in fade-in duration-500">
-      <div className="flex justify-end -mb-2"><OfflineBadge /></div>
+      <div className="flex justify-end -mb-2 gap-2 flex-wrap"><OfflineBadge /><FiscalBadge /></div>
       {/* BANNER DE CONTINGENCIA */}
       {isOfflineMode && (
         <Alert variant="destructive" className="rounded-2xl bg-amber-500/10 border-amber-500/30 animate-pulse">

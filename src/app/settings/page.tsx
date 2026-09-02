@@ -38,6 +38,8 @@ import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { getFiscalConfig, saveFiscalConfig, isValidCuit, formatCuit, DEFAULT_FISCAL_CONFIG, type FiscalConfig, type CondicionIVA } from '@/lib/taller-fiscal';
+import { FiscalBadge } from '@/components/FiscalBadge';
 
 export default function SettingsPage() {
   return (
@@ -82,6 +84,19 @@ function SettingsContent() {
     applyTheme(id);
     setActiveTheme(id);
     toast({ title: "Paleta aplicada", description: THEMES.find(t=>t.id===id)?.name + " activada." });
+  };
+
+  // ─ Fiscal config (AFIP) ─
+  const [fiscal, setFiscal] = useState<FiscalConfig>(DEFAULT_FISCAL_CONFIG);
+  const [fiscalMsg, setFiscalMsg] = useState<string | null>(null);
+  useEffect(() => { setFiscal(getFiscalConfig()); }, []);
+  const handleSaveFiscal = () => {
+    const err = !isValidCuit(fiscal.cuit) && fiscal.cuit ? 'CUIT inválido (verificador AFIP)' : fiscal.ptoVta < 1 || fiscal.ptoVta > 9999 ? 'Punto de venta 1..9999' : null;
+    if (err) { setFiscalMsg(err); toast({ title: err, variant: 'destructive' }); return; }
+    saveFiscalConfig({ ...fiscal, cuit: fiscal.cuit.replace(/\D/g,'') });
+    setFiscalMsg('Guardado');
+    toast({ title: 'Fiscal guardado', description: `CUIT ${formatCuit(fiscal.cuit)} · PtoVta ${fiscal.ptoVta}` });
+    setTimeout(()=>setFiscalMsg(null), 2500);
   };
 
   const handleDownloadZip = async () => {
@@ -276,6 +291,56 @@ export default nextConfig;`;
             })}
           </div>
           <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mt-4">Tip: Para taller mecánico, Taller Industrial y Acero & Aceite tienen mejor contraste con grasa/polvo.</p>
+        </CardContent>
+      </Card>
+
+      {/* FISCAL AFIP — TallerFlow */ }
+      <Card className="rounded-3xl border-none shadow-xl bg-card overflow-hidden">
+        <CardHeader className="bg-emerald-600/10 border-b pb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-emerald-600 rounded-2xl flex items-center justify-center">
+              <FileCode className="text-white w-6 h-6" />
+            </div>
+            <div className="flex-1">
+              <CardTitle className="text-2xl text-emerald-700 flex items-center gap-2">Fiscal AFIP <FiscalBadge /></CardTitle>
+              <CardDescription>CUIT, punto de venta y condición IVA para facturar con IVA 21 / 10.5 / 27. Cola CAE idempotente (client_uuid).</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-8 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label className="text-xs font-black uppercase tracking-widest">CUIT emisor (11 dígitos)</Label>
+              <Input value={fiscal.cuit} onChange={e=>setFiscal(s=>({...s, cuit: e.target.value}))} placeholder="20-12345678-6" className="rounded-xl h-12 font-mono" />
+              <p className="text-[11px] text-muted-foreground">{fiscal.cuit ? (isValidCuit(fiscal.cuit) ? `✓ ${formatCuit(fiscal.cuit)} válido` : '✗ CUIT inválido') : 'Vacío = modo demostración sin CAE.'}</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-black uppercase tracking-widest">Punto de venta</Label>
+              <Input type="number" value={fiscal.ptoVta} onChange={e=>setFiscal(s=>({...s, ptoVta: Number(e.target.value)||1}))} className="rounded-xl h-12" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-black uppercase tracking-widest">Razón social</Label>
+              <Input value={fiscal.razonSocial} onChange={e=>setFiscal(s=>({...s, razonSocial: e.target.value}))} placeholder="Taller Mecánico SRL" className="rounded-xl h-12" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-black uppercase tracking-widest">Condición IVA</Label>
+              <select value={fiscal.condicionIva} onChange={e=>setFiscal(s=>({...s, condicionIva: e.target.value as CondicionIVA}))} className="w-full rounded-xl h-12 px-3 bg-muted/30 border">
+                <option value="Responsable Inscripto">Responsable Inscripto</option>
+                <option value="Monotributo">Monotributo</option>
+                <option value="Consumidor Final">Consumidor Final</option>
+                <option value="Exento">Exento</option>
+                <option value="No Responsable">No Responsable</option>
+                <option value="IVA Sujeto Exento">IVA Sujeto Exento</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-3 pt-6">
+              <input type="checkbox" checked={fiscal.ivaIncluido} onChange={e=>setFiscal(s=>({...s, ivaIncluido: e.target.checked}))} id="ivaIncl" className="w-5 h-5" />
+              <Label htmlFor="ivaIncl" className="text-sm">Precios con IVA incluido (desglose automático 21/10.5/27)</Label>
+            </div>
+          </div>
+          {fiscalMsg && <p className="text-sm font-bold text-emerald-600">{fiscalMsg}</p>}
+          <Button onClick={handleSaveFiscal} className="w-full rounded-xl h-12 font-black bg-emerald-600 hover:bg-emerald-700"><Save className="w-4 h-4 mr-2"/> Guardar fiscal</Button>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">WSFE: cada venta en POS genera un <code>AfipPayload</code> con <code>client_uuid = receipt.id</code> para idempotencia. Si estás offline, queda en cola <code>afipQueue pending</code> y se reintenta al volver. En esta fase sin certificado AFIP, el botón &quot;Sincronizar CAE&quot; mockea CAE para validar flujo; en prod se reemplaza por <code>fetch /afip/cae</code>.</p>
         </CardContent>
       </Card>
 
